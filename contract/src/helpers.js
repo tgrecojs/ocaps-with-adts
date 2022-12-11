@@ -1,5 +1,5 @@
 import { AmountMath } from '@agoric/ertp';
-import { Fn } from '../data.types.js';
+import { Fn, Either } from '../data.types.js';
 
 const merge = (x, y) => ({ ...x, ...y });
 
