@@ -7,6 +7,7 @@
   "scripts": {
     "build": "exit 0",
     "test": "ava --verbose",
+    "test:tap": "ava --verbose --tap",
     "lint": "eslint '**/*.{js,jsx}'",
     "lint-fix": "eslint --fix '**/*.{js,jsx}'",
     "lint-check": "eslint '**/*.{js,jsx}'",
@@ -21,7 +22,9 @@
     "eslint-config-prettier": "^6.15.0",
     "eslint-plugin-import": "^2.26.0",
     "eslint-plugin-prettier": "^4.0.0",
-    "prettier": "^2.7.1"
+    "prettier": "^2.7.1",
+    "riteway": "latest",
+    "tap-nirvana": "^1.0.5"
   },
   "dependencies": {
     "@endo/bundle-source": "^2.1.1",
@@ -33,7 +36,9 @@
     "@endo/marshal": "^0.6.9",
     "@agoric/notifier": "beta",
     "@agoric/store": "beta",
-    "@agoric/zoe": "beta"
+    "@agoric/zoe": "beta",
+    "immutable-ext": "1.1.5",
+    "monio":"0.51.1"
   },
   "ava": {
     "files": [
