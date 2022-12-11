@@ -72,7 +72,11 @@ const trace = (label) => (value) => {
 };
 
 const TraceReader = trace(Fn);
-
+// safeSwap:: () => Fn(Either.Left | Either.Right)
+const safeSwap = () =>
+  Fn.ask.map((env) =>
+    Either.tryCatch(() => env.swap(env.userSeat, env.adminSeat)),
+  );
 export {
   handleOfferSuccessMsg,
   handleError,
@@ -88,6 +92,7 @@ export {
   runIncrementUser,
   runExitUserSeat,
   runSwapReallocation,
+  safeSwap,
   trace,
   traceADT,
   TraceReader,

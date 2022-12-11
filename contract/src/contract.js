@@ -1,17 +1,11 @@
 // @ts-check
 /* global harden */
 import '@agoric/zoe/exported.js';
-import { AmountMath, AmountShape } from '@agoric/ertp';
 import { Far } from '@endo/marshal';
 import {
   assertIssuerKeywords,
-  assertProposalShape,
-  fitProposalShape,
   swap,
-  swapExact,
 } from '@agoric/zoe/src/contractSupport/zoeHelpers.js';
-import { M } from '@agoric/store';
-import { Fn, Either } from '../data.types.js';
 import {
   handleError,
   handleOfferSuccessMsg,
@@ -19,15 +13,9 @@ import {
   runGetIssuerRecord,
   runGetWantAmount,
   runMintWantAmount,
-  trace,
-  TraceReader,
+  safeSwap,
 } from './helpers.js';
 
-// safeSwap:: () => Fn(Either.Left | Either.Right)
-const safeSwap = () =>
-  Fn.ask.map((env) =>
-    Either.tryCatch(() => env.swap(env.userSeat, env.adminSeat)),
-  );
 /**
  * This contract allows users to exchange "Dollars" from "Tokens".
  * mintPayment invitation requires a user to { give: {Dollars: dollarAmount} } and { want: {Token: tokensAmount} }
