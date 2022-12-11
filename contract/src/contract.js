@@ -3,7 +3,6 @@
 import '@agoric/zoe/exported.js';
 import { AmountMath, AmountShape } from '@agoric/ertp';
 import { Far } from '@endo/marshal';
-
 import {
   assertIssuerKeywords,
   assertProposalShape,
@@ -12,7 +11,7 @@ import {
   swapExact,
 } from '@agoric/zoe/src/contractSupport/zoeHelpers.js';
 import { M } from '@agoric/store';
-import { Fn, FnT, Either } from '../data.types.js';
+import { Fn, Either } from '../data.types.js';
 
 const trace = (label) => (value) => {
   console.log(label, ':::', value);
@@ -23,32 +22,80 @@ const traceADT = (Type) => (label) => (value) => {
   return Type((x) => x);
 };
 
-export const AmountKeywordRecordShape = M.recordOf(M.string(), AmountShape);
-export const AmountPatternKeywordRecordShape = M.recordOf(
-  M.string(),
-  M.pattern(),
+const FnTracer = traceADT(Fn);
+
+// TG: This is for research. I can't to be figure out how to sucessfully proposal shape.
+// Need to learn more about using the M API
+// Relevant links:
+// https://github.com/Agoric/agoric-sdk/search?q=ProposalShape
+// https://github.com/Agoric/agoric-sdk/blob/master/packages/zoe/src/contractSupport/zoeHelpers.js#L108-L110
+// https://github.com/Agoric/agoric-sdk/blob/master/packages/zoe/src/typeGuards.js#L27-L45
+//
+// export const AmountKeywordRecordShape = M.recordOf(M.string(), AmountShape);
+// export const AmountPatternKeywordRecordShape = M.recordOf(
+//   M.string(),
+//   M.pattern(),
+// );
+// export const makeHandleShape = (name) => M.remotable(`${name}Handle`);
+// export const TimerShape = makeHandleShape('timer');
+// export const FullProposalShape = harden({
+//   want: AmountPatternKeywordRecordShape,
+//   give: AmountKeywordRecordShape,
+//   // To accept only one, we could use M.or rather than M.splitRecord,
+//   // but the error messages would have been worse. Rather,
+//   // cleanProposal's assertExit checks that there's exactly one.
+//   exit: M.splitRecord({}),
+// });
+// export const ProposalShape = M.splitRecord({}, FullProposalShape, {});
+
+const head = (arr = []) => {
+  const [val] = arr;
+  return val;
+};
+const parseKeyword = (offerSide) =>
+  Object.entries(offerSide).map(([keyword, { brand, value }]) => {
+    return { keyword, brand, value };
+  });
+
+const unboxKeyword = (x) => head(parseKeyword(x));
+
+const runMintWantAmount = ({ keyword, value }) =>
+  Fn.ask.map((env) =>
+    env.zcfMint.mintGains(
+      { [keyword]: AmountMath.make(env.brand, value) },
+      env.adminSeat,
+    ),
+  );
+
+const runGetWantAmount = () =>
+  Fn.ask.map((env) => unboxKeyword(env.userSeat.getProposal().want));
+
+const runIncrementAdmin = () =>
+  Fn.ask.map((env) =>
+    env.adminSeat.incrementBy(
+      env.userSeat.decrementBy(harden(env.userSeat.getProposal().give)),
+    ),
+  );
+
+const runReallocate = () =>
+  Fn.ask.map((env) => env.reallocate(env.userSeat, env.adminSeat));
+
+const runIncrementUser = () =>
+  Fn.ask.map((env) =>
+    env.userSeat.incrementBy(
+      env.adminSeat.decrementBy(harden(env.userSeat.getProposal().want)),
+    ),
+  );
+
+const runExitUserSeat = () => Fn.ask.map((env) => env.userSeat.exit());
+const merge = (x, y) => ({ ...x, ...y });
+
+const runGetIssuerRecord = Fn.ask.map((state) =>
+  merge(state, state.zcfMint.getIssuerRecord()),
 );
-export const makeHandleShape = (name) => M.remotable(`${name}Handle`);
-export const TimerShape = makeHandleShape('timer');
+const runSwapReallocation = () =>
+  Fn.ask.map((env) => env.swap(env.adminSeat, env.userSeat));
 
-export const FullProposalShape = harden({
-  want: AmountPatternKeywordRecordShape,
-  give: AmountKeywordRecordShape,
-  // To accept only one, we could use M.or rather than M.splitRecord,
-  // but the error messages would have been worse. Rather,
-  // cleanProposal's assertExit checks that there's exactly one.
-  exit: M.splitRecord({}),
-});
-
-export const ProposalShape = M.splitRecord({}, FullProposalShape, {});
-
-const runCreateAmount = (x) => Fn((state) => AmountMath.make(state.brand, x));
-// This is the same as Fn.ask.map(state => AmountMath(state.brand, x))
-// Fn.ask.map makes values from the .run() method available.
-const runMintPayment = (amount) =>
-  Fn.ask.map((state) => state.mint.mintPayment(amount));
-const runDepositPayment = (payment) =>
-  Fn.ask.map((state) => state.purse.deposit(payment));
 /**
  * This is a very simple contract that creates a new issuer and mints payments
  * from it, in order to give an example of how that can be done.  This contract
@@ -65,16 +112,8 @@ const runDepositPayment = (payment) =>
  * @type {ContractStartFn}
  */
 
-const merge = (x, y) => ({ ...x, ...y });
-
 const start = async (zcf) => {
   assertIssuerKeywords(zcf, ['Dollars']);
-  // Create the internal token mint for a fungible digital asset. Note
-  // that 'Tokens' is both the keyword and the allegedName.
-  // AWAIT
-
-  // Now that ZCF has saved the issuer, brand, and local amountMath, they
-  // can be accessed synchronously.
 
   const { zcfSeat: adminSeat } = zcf.makeEmptySeatKit();
   const zcfMint = await zcf.makeZCFMint('Tokens');
@@ -83,59 +122,10 @@ const start = async (zcf) => {
     zcfMint,
     adminSeat,
     reallocate: zcf.reallocate,
+    swap: (leftSeat, rightSeat) => swap(zcf, leftSeat, rightSeat),
   };
-
-  const runGetIssuerRecord = Fn.ask.map((state) =>
-    merge(state, state.zcfMint.getIssuerRecord()),
-  );
 
   const contractAdminState = runGetIssuerRecord.run(adminState);
-
-  const runSwapReallocation = () =>
-    Fn.ask.map((env) => swap(zcf, env.adminSeat, env.userSeat));
-
-  const head = (arr = []) => {
-    const [val] = arr;
-    return val;
-  };
-  const parseKeyword = (offerSide) =>
-    Object.entries(offerSide).map(([keyword, { brand, value }]) => {
-      return { keyword, brand, value };
-    });
-
-  const unboxKeyword = (x) => head(parseKeyword(x));
-
-  const runMintWantAmount = ({ keyword, value }) =>
-    Fn.ask.map((env) =>
-      env.zcfMint.mintGains(
-        { [keyword]: AmountMath.make(env.brand, value) },
-        env.adminSeat,
-      ),
-    );
-
-  const runGetWantAmount = () =>
-    Fn.ask.map((env) => unboxKeyword(env.userSeat.getProposal().want));
-
-  const runIncrementAdmin = () =>
-    Fn.ask.map((env) =>
-      env.adminSeat.incrementBy(
-        env.userSeat.decrementBy(harden(env.userSeat.getProposal().give)),
-      ),
-    );
-
-  const runReallocate = () =>
-    Fn.ask.map((env) => zcf.reallocate(env.userSeat, env.adminSeat));
-
-  const runIncrementUser = () =>
-    Fn.ask.map((env) =>
-      env.userSeat.incrementBy(
-        env.adminSeat.decrementBy(harden(env.userSeat.getProposal().want)),
-      ),
-    );
-
-  const runExitUserSeat = () => Fn.ask.map((env) => env.userSeat.exit());
-
-  const FnTracer = traceADT(Fn);
 
   const offerReaderAlternative = Fn.of(runGetWantAmount)
     .chain(runGetWantAmount)
@@ -145,7 +135,7 @@ const start = async (zcf) => {
   const offerReader = Fn.of(runGetWantAmount)
     .chain(runGetWantAmount)
     .chain(runMintWantAmount)
-    // .chain(runSwapReallocation) eliminates the need for this:
+    // .chain(runSwapReallocation) eliminates the need for this
     .chain(runIncrementAdmin)
     // and this...
     .chain(runIncrementUser)
@@ -170,9 +160,6 @@ const start = async (zcf) => {
   };
 
   const creatorFacet = Far('creatorFacet', {
-    // The creator of the instance can send invitations to anyone
-    // they wish to.
-
     // TG: Trying to use proposalShape doesn't work.
     makeInvitation: () => zcf.makeInvitation(mintPayment, 'mint a payment'),
     getTokenIssuer: () => zcfMint.getIssuerRecord().issuer,
