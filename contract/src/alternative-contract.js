@@ -16,22 +16,27 @@ import {
   handleError,
   handleOfferSuccessMsg,
   merge,
+  runExitUserSeat,
   runGetIssuerRecord,
   runGetWantAmount,
+  runIncrementAdmin,
+  runIncrementUser,
   runMintWantAmount,
-  trace,
-  TraceReader,
+  runReallocate,
 } from './helpers.js';
 
-// safeSwap:: () => Fn(Either.Left | Either.Right)
-const safeSwap = () =>
-  Fn.ask.map((env) =>
-    Either.tryCatch(() => env.swap(env.userSeat, env.adminSeat)),
-  );
 /**
- * This contract allows users to exchange "Dollars" from "Tokens".
- * mintPayment invitation requires a user to { give: {Dollars: dollarAmount} } and { want: {Token: tokensAmount} }
- * the offer will succeed if both parties
+ * This is a very simple contract that creates a new issuer and mints payments
+ * from it, in order to give an example of how that can be done.  This contract
+ * sends new tokens to anyone who has an invitation.
+ *
+ * The expectation is that most contracts that want to do something similar
+ * would use the ability to mint new payments internally rather than sharing
+ * that ability widely as this one does.
+ *
+ * To pay others in tokens, the creator of the instance can make
+ * invitations for them, which when used to make an offer, will payout
+ * the specified amount of tokens.
  *
  * @type {ContractStartFn}
  */
@@ -39,8 +44,6 @@ const safeSwap = () =>
 const start = async (zcf) => {
   assertIssuerKeywords(zcf, ['Dollars']);
 
-  // TODO: begin
-  // const safeAssertKeys = tryCatch(() => assertIssuerKeywords(zcf, ['Dollar']));
   const { zcfSeat: adminSeat } = zcf.makeEmptySeatKit();
   const zcfMint = await zcf.makeZCFMint('Tokens');
 
@@ -57,10 +60,14 @@ const start = async (zcf) => {
   const mintPayment = (seat) =>
     runGetWantAmount()
       .chain(runMintWantAmount)
-      .chain(safeSwap)
+      .chain(runIncrementAdmin)
+      .chain(runIncrementUser)
+      .chain(runReallocate)
+      .chain(runExitUserSeat)
+      .map(Either.of)
       .run(merge(contractAdminState, { userSeat: seat }))
       .fold(
-        handleError('error handling mintPayment offer'),
+        handleError('error handling mint payment offer'),
         handleOfferSuccessMsg(),
       );
 

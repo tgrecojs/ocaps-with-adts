@@ -14,7 +14,7 @@ import { AmountMath, makeIssuerKit } from '@agoric/ertp';
 const filename = new URL(import.meta.url).pathname;
 const dirname = path.dirname(filename);
 
-const contractPath = `${dirname}/../src/contract.js`;
+const contractPath = `${dirname}/../src/alternative-contract.js`;
 const { brand, issuer: dollarIssuer, mint } = makeIssuerKit('dollars');
 const dollars = (x) => AmountMath.make(brand, x);
 
@@ -44,10 +44,10 @@ test('zoe - mint payments', async (t) => {
   const seat = await E(zoe).offer(
     invitation,
     {
-      give: { Dollars: dollars(105n) },
+      give: { Dollars: dollars(100n) },
       want: { Token: AmountMath.make(tokenBrand, 100n) },
     },
-    { Dollars: mint.mintPayment(dollars(105n)) },
+    { Dollars: mint.mintPayment(dollars(100n)) },
   );
 
   t.deepEqual(await seat.hasExited(), true);
