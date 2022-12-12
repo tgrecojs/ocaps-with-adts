@@ -60,11 +60,13 @@
   "eslintConfig": {
     "extends": [
       "@agoric"
-    ]
+    ],
+    "rules": {"comma-dangle" :"off"}
   },
   "prettier": {
-    "trailingComma": "all",
-    "singleQuote": true
+    "trailingComma": "none",
+    "singleQuote": true,
+    "arrowParens": "avoid"
   },
   "eslintIgnore": [
     "dappConstants.js"

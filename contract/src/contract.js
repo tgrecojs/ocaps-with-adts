@@ -4,17 +4,20 @@ import '@agoric/zoe/exported.js';
 import { Far } from '@endo/marshal';
 import {
   assertIssuerKeywords,
-  swap,
+  swap
 } from '@agoric/zoe/src/contractSupport/zoeHelpers.js';
+import { makeStore } from '@agoric/store';
 import {
   handleError,
   handleOfferSuccessMsg,
   merge,
+  runGetGiveAmount,
   runGetIssuerRecord,
   runGetWantAmount,
   runMintWantAmount,
-  safeSwap,
+  safeSwap
 } from './helpers.js';
+import { Fn, Either } from '../data.types.js';
 
 /**
  * This contract allows users to exchange "Dollars" from "Tokens".
@@ -24,7 +27,7 @@ import {
  * @type {ContractStartFn}
  */
 
-const start = async (zcf) => {
+const start = async zcf => {
   assertIssuerKeywords(zcf, ['Dollars']);
 
   // TODO: begin
@@ -37,31 +40,33 @@ const start = async (zcf) => {
     adminSeat,
     reallocate: zcf.reallocate,
     swap: (leftSeat, rightSeat) => swap(zcf, leftSeat, rightSeat),
+    internalStore: makeStore('deposit balances')
   };
 
   const contractAdminState = runGetIssuerRecord.run(adminState);
 
   /** @type {OfferHandler} */
-  const mintPayment = (seat) =>
+  const mintPayment = seat =>
     runGetWantAmount()
       .chain(runMintWantAmount)
       .chain(safeSwap)
       .run(merge(contractAdminState, { userSeat: seat }))
       .fold(
         handleError('error handling mintPayment offer'),
-        handleOfferSuccessMsg(),
+        handleOfferSuccessMsg()
       );
 
   const creatorFacet = Far('creatorFacet', {
     // TG: Trying to use proposalShape doesn't work.
     makeInvitation: () => zcf.makeInvitation(mintPayment, 'mint a payment'),
     getTokenIssuer: () => zcfMint.getIssuerRecord().issuer,
+    getStore: () => adminState.internalStore
   });
 
   const publicFacet = Far('publicFacet', {
     // Make the token issuer public. Note that only the mint can
     // make new digital assets. The issuer is ok to make public.
-    getTokenIssuer: () => zcfMint.getIssuerRecord().issuer,
+    getTokenIssuer: () => zcfMint.getIssuerRecord().issuer
   });
 
   // Return the creatorFacet to the creator, so they can make

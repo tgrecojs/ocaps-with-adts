@@ -16,9 +16,9 @@ const dirname = path.dirname(filename);
 
 const contractPath = `${dirname}/../src/alternative-contract.js`;
 const { brand, issuer: dollarIssuer, mint } = makeIssuerKit('dollars');
-const dollars = (x) => AmountMath.make(brand, x);
+const dollars = x => AmountMath.make(brand, x);
 
-test('zoe - mint payments', async (t) => {
+test('zoe - mint payments', async t => {
   const { zoeService } = makeZoeKit(makeFakeVatAdmin().admin);
   const feePurse = E(zoeService).makeFeePurse();
   const zoe = E(zoeService).bindDefaultFeePurse(feePurse);
@@ -30,7 +30,7 @@ test('zoe - mint payments', async (t) => {
   const installation = E(zoe).install(bundle);
 
   const { creatorFacet, instance } = await E(zoe).startInstance(installation, {
-    Dollars: dollarIssuer,
+    Dollars: dollarIssuer
   });
   // Let's get the tokenIssuer from the contract so we can evaluate
   // what we get as our payout
@@ -45,29 +45,61 @@ test('zoe - mint payments', async (t) => {
     invitation,
     {
       give: { Dollars: dollars(100n) },
-      want: { Token: AmountMath.make(tokenBrand, 100n) },
+      want: { Token: AmountMath.make(tokenBrand, 100n) }
     },
-    { Dollars: mint.mintPayment(dollars(100n)) },
+    { Dollars: mint.mintPayment(dollars(100n)) }
   );
 
   t.deepEqual(await seat.hasExited(), true);
-  t.deepEqual(
-    await seat.getOfferResult(),
-    'Offer completed. You should receive a payment from Zoe',
-  );
 
   const result = await seat.getOfferResult();
-  t.deepEqual(
-    result,
-    'Offer completed. You should receive a payment from Zoe',
-    'should return the correct string',
+  t.truthy(
+    result.getStore,
+    'openAccount should return a reference to getStore'
   );
+  t.truthy(
+    result.addCollateralInvitation,
+    'openAccount should return a reference to addCollateral'
+  );
+
   // Let's get the tokenIssuer from the contract so we can evaluate
   // what we get as our payout
 
-  const tokens100 = AmountMath.make(tokenBrand, 100n);
+  const tokens = x => AmountMath.make(tokenBrand, x);
   const paymentP = await seat.getPayout('Token');
   const tokenPayoutAmount = await E(tokenIssuer).getAmountOf(paymentP);
 
-  t.deepEqual(tokenPayoutAmount, tokens100);
+  t.deepEqual(tokenPayoutAmount, tokens(100n));
+
+  const store = await E(creatorFacet).getStore();
+  // t.deepEqual(store.get('Dollars'), { brand, value: 100n });
+
+  // Bob makes an offer using the invitation
+  const seatTwo = await E(zoe).offer(
+    E(creatorFacet).makeInvitation(),
+    {
+      give: { Dollars: dollars(200n) },
+      want: { Token: AmountMath.make(tokenBrand, 200n) }
+    },
+    { Dollars: mint.mintPayment(dollars(200n)) }
+  );
+  const seatTwoPayout = await seatTwo.getPayout('Token');
+  const tokenPayoutAmounTwo = await E(tokenIssuer).getAmountOf(seatTwoPayout);
+  const resultTwo = await seatTwo.getOfferResult();
+
+  t.deepEqual(tokenPayoutAmounTwo, tokens(200n));
+  t.deepEqual(store.get('Dollars'), { value: 300n, brand });
+
+  const addCollateralSeat = await E(zoe).offer(
+    E(result).addCollateralInvitation(),
+    {
+      give: { Dollars: dollars(1200n) },
+      want: { Token: AmountMath.make(tokenBrand, 1200n) }
+    },
+    { Dollars: mint.mintPayment(dollars(1200n)) }
+  );
+  const addResult = await addCollateralSeat.getOfferResult();
+  console.log({ addResult });
+
+  t.deepEqual(store.get('Dollars'), { value: 1500n, brand });
 });
