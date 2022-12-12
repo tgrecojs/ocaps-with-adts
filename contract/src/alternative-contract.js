@@ -23,6 +23,7 @@ import {
   runIncrementUser,
   runMintWantAmount,
   runReallocate,
+  trace,
 } from './helpers.js';
 
 /**
@@ -59,6 +60,7 @@ const start = async (zcf) => {
   /** @type {OfferHandler} */
   const mintPayment = (seat) =>
     runGetWantAmount()
+      .map(trace('after runGetWant'))
       .chain(runMintWantAmount)
       .chain(runIncrementAdmin)
       .chain(runIncrementUser)

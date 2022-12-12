@@ -1,10 +1,9 @@
 // @ts-check
 
 /* eslint-disable import/order -- https://github.com/endojs/endo/issues/1235 */
-import { test } from './prepare-test-env-ava.js';
+import { describe } from './prepare-riteway.js';
 import { AmountMath, makeIssuerKit } from '@agoric/ertp';
 import { Fn, Fn as Reader } from '../data.types.js';
-import { describe } from './prepare-riteway.js';
 
 const { brand, issuer, mint } = makeIssuerKit('dollars');
 const dollars = (x) => AmountMath.make(brand, x);
@@ -17,14 +16,6 @@ const runMintPayment = (amount) =>
   Fn.ask.map((state) => state.mint.mintPayment(amount));
 const runDepositPayment = (payment) =>
   Fn.ask.map((state) => state.purse.deposit(payment));
-
-// const Merge = (x) => ({
-//   value: x,
-//   concat: (other) => Merge({ ...x, ...other.x }),
-//   extract: () => x,
-// });
-
-const merge = (x, y) => ({ ...x, ...y });
 
 describe('Mint/Purse using ADTs :: runCreateAmount', async (assert) => {
   const initialState = { brand, issuer, mint, purse: issuer.makeEmptyPurse() };
