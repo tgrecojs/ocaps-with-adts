@@ -59,14 +59,14 @@ const start = async zcf => {
   const creatorFacet = Far('creatorFacet', {
     // TG: Trying to use proposalShape doesn't work.
     makeInvitation: () => zcf.makeInvitation(mintPayment, 'mint a payment'),
-    getTokenIssuer: () => zcfMint.getIssuerRecord().issuer,
+    getLiAtomIssuer: () => zcfMint.getIssuerRecord().issuer,
     getStore: () => adminState.internalStore
   });
 
   const publicFacet = Far('publicFacet', {
     // Make the token issuer public. Note that only the mint can
     // make new digital assets. The issuer is ok to make public.
-    getTokenIssuer: () => zcfMint.getIssuerRecord().issuer
+    getLiAtomIssuer: () => zcfMint.getIssuerRecord().issuer
   });
 
   // Return the creatorFacet to the creator, so they can make

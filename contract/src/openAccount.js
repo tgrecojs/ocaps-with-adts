@@ -38,8 +38,10 @@ import {
  */
 
 const start = async zcf => {
-  assertIssuerKeywords(zcf, ['Dollars']);
+  assertIssuerKeywords(zcf, ['Dollars', 'Atoms']);
+  const { dollarsToAtomRatio } = await zcf.getTerms();
 
+  console.log({ dollarsToAtomRatio });
   const { zcfSeat: adminSeat } = zcf.makeEmptySeatKit();
   const zcfMint = await zcf.makeZCFMint('Tokens');
   const adminState = {
@@ -47,7 +49,10 @@ const start = async zcf => {
     adminSeat,
     reallocate: zcf.reallocate,
     swap: (leftSeat, rightSeat) => swap(zcf, leftSeat, rightSeat),
-    internalStore: makeStore('balances')
+    internalStore: makeStore('balances'),
+    ratios: {
+      dollarsToAtomRatio
+    }
   };
 
   const contractAdminState = runGetIssuerRecord.run(adminState);
@@ -64,6 +69,7 @@ const start = async zcf => {
     // todo
     return 'borrow success!';
   };
+
   const createUserAccountResult = store =>
     Far('accountHolderFacet', {
       getStore: () => store,
@@ -114,8 +120,6 @@ const start = async zcf => {
   });
 
   const publicFacet = Far('publicFacet', {
-    // Make the token issuer public. Note that only the mint can
-    // make new digital assets. The issuer is ok to make public.
     getTokenIssuer: () => zcfMint.getIssuerRecord().issuer
   });
 
