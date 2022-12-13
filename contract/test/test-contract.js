@@ -15,7 +15,7 @@ import { makeRatio } from '@agoric/zoe/src/contractSupport/ratio.js';
 const filename = new URL(import.meta.url).pathname;
 const dirname = path.dirname(filename);
 
-const contractPath = `${dirname}/../src/alternative-contract.js`;
+const contractPath = `${dirname}/../src/contract.js`;
 const { brand, issuer: dollarIssuer, mint } = makeIssuerKit('dollars');
 const dollars = x => AmountMath.make(brand, x);
 const {
