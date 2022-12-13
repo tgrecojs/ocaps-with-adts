@@ -8,6 +8,20 @@ const head = (arr = []) => {
   const [val] = arr;
   return val;
 };
+
+const initOrSet =
+  store =>
+  ({ keyword, brand, value }) =>
+    !store.has(keyword)
+      ? store.init(keyword, {
+          value,
+          brand
+        })
+      : store.set(keyword, {
+          brand,
+          value: store.get(keyword).value + value
+        });
+
 const parseKeyword = offerSide =>
   Object.entries(offerSide).map(([keyword, { brand, value }]) => {
     return { keyword, brand, value };
@@ -48,9 +62,8 @@ const runIncrementUser = () =>
 
 const runExitUserSeat = () => ask.map(env => env.userSeat.exit());
 
-const runGetIssuerRecord = ask.map(state =>
-  merge(state, state.zcfMint.getIssuerRecord())
-);
+const runGetIssuerRecord = () =>
+  ask.map(state => ({ ...state, ...state.zcfMint.getIssuerRecord() }));
 const runSwapReallocation = () =>
   ask.map(env => env.swap(env.adminSeat, env.userSeat));
 const handleOfferSuccessMsg =
@@ -85,7 +98,6 @@ const safeSwap = () =>
 const runRecordAdminDeposit = () =>
   runGetGiveAmount().chain(giveObject =>
     Fn.ask.map(env => {
-      console.log({ env, giveObject });
       return Either.tryCatch(() => initOrSet(env.internalStore)(giveObject));
     })
   );
@@ -93,23 +105,9 @@ const runRecordAdminDeposit = () =>
 const runRecordUserDeposit = () =>
   runGetWantAmount().chain(giveObject =>
     Fn.ask.map(env => {
-      console.log({ env, giveObject });
       return Either.tryCatch(() => initOrSet(env.userStore)(giveObject));
     })
   );
-
-const initOrSet =
-  store =>
-  ({ keyword, brand, value }) =>
-    !store.has(keyword)
-      ? store.init(keyword, {
-          value,
-          brand
-        })
-      : store.set(keyword, {
-          brand,
-          value: store.get(keyword).value + value
-        });
 
 export {
   handleOfferSuccessMsg,

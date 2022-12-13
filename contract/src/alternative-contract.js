@@ -7,8 +7,10 @@ import {
   swap
 } from '@agoric/zoe/src/contractSupport/zoeHelpers.js';
 import { makeStore } from '@agoric/store';
+import { E } from '@endo/eventual-send';
 import {
   handleError,
+  id,
   merge,
   runExitUserSeat,
   runGetIssuerRecord,
@@ -18,9 +20,30 @@ import {
   runMintWantAmount,
   runReallocate,
   runRecordAdminDeposit,
-  runRecordUserDeposit
+  runRecordUserDeposit,
+  trace,
+  TraceReader
 } from './helpers.js';
+import { Either, Fn, Task } from '../data.types.js';
 
+const runSetupValidationStore = () =>
+  Fn.ask.map(env =>
+    Object.entries(env.issuersFromZcf).map(([keyword, props]) =>
+      env.validationStore.init(keyword, {
+        wantKeyword: `Li${keyword}`,
+        issuer: props
+      })
+    )
+  );
+const createMintTask = async (promises = []) => {
+  return E.when(Promise.all(promises), ([LiAtomsMint, LiDollarsMin]) => {
+    console.log(`Mints saved`, LiAtomsMint, LiDollarsMin);
+    return Fn.ask.map(env => ({ ...env, mints: LiAtomsMint, LiDollarsMin }));
+  }).catch(e => {
+    console.error(`Failure with mint. Not added to Reserve`);
+    throw e;
+  });
+};
 /**
  * This is a very simple contract that creates a new issuer and mints payments
  * from it, in order to give an example of how that can be done.  This contract
@@ -38,7 +61,11 @@ import {
  */
 
 const start = async zcf => {
-  assertIssuerKeywords(zcf, ['Dollars']);
+  assertIssuerKeywords(zcf, ['Dollars', 'Atoms']);
+  const getDebtKeywords = store =>
+    [...store.values()].map(x => x.wantKeyword).map(x => zcf.makeZCFMint(x));
+
+  const { issuers, dollarsToAtomsRatio } = zcf.getTerms();
 
   const { zcfSeat: adminSeat } = zcf.makeEmptySeatKit();
   const zcfMint = await zcf.makeZCFMint('Tokens');
@@ -47,12 +74,28 @@ const start = async zcf => {
     adminSeat,
     reallocate: zcf.reallocate,
     swap: (leftSeat, rightSeat) => swap(zcf, leftSeat, rightSeat),
-    internalStore: makeStore('balances')
+    internalStore: makeStore('balances'),
+    validationStore: makeStore('contract validation store'),
+    dollarsToAtomsRatio
   };
 
-  const contractAdminState = runGetIssuerRecord.run(adminState);
+  const initContractAdminState = runSetupValidationStore()
+    .chain(runGetIssuerRecord)
+    .run({
+      ...adminState,
+      issuersFromZcf: issuers
+    });
+  const newMints = await createMintTask(
+    getDebtKeywords(initContractAdminState.validationStore)
+  );
+
+  const mergeReader = inner => Fn(x => ({ ...x, mints: inner }));
+  const contractAdminState = newMints
+    .chain(mergeReader)
+    .run(initContractAdminState);
 
   const runHandleDepositOffer = runGetWantAmount()
+    .map(trace('after getRun'))
     .chain(runMintWantAmount)
     .chain(runIncrementAdmin)
     .chain(runIncrementUser)

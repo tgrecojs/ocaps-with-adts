@@ -10,6 +10,7 @@ import { E } from '@endo/eventual-send';
 import { makeFakeVatAdmin } from '@agoric/zoe/tools/fakeVatAdmin.js';
 import { makeZoeKit } from '@agoric/zoe';
 import { AmountMath, makeIssuerKit } from '@agoric/ertp';
+import { makeRatio } from '@agoric/zoe/src/contractSupport/ratio.js';
 
 const filename = new URL(import.meta.url).pathname;
 const dirname = path.dirname(filename);
@@ -17,6 +18,12 @@ const dirname = path.dirname(filename);
 const contractPath = `${dirname}/../src/alternative-contract.js`;
 const { brand, issuer: dollarIssuer, mint } = makeIssuerKit('dollars');
 const dollars = x => AmountMath.make(brand, x);
+const {
+  brand: atomBrand,
+  issuer: atomIssuer,
+  mint: atomMint
+} = makeIssuerKit('atom');
+const atoms = x => AmountMath.make(atomBrand, x);
 
 test('zoe - mint payments', async t => {
   const { zoeService } = makeZoeKit(makeFakeVatAdmin().admin);
@@ -29,9 +36,17 @@ test('zoe - mint payments', async t => {
   // install the contract
   const installation = E(zoe).install(bundle);
 
-  const { creatorFacet, instance } = await E(zoe).startInstance(installation, {
-    Dollars: dollarIssuer
-  });
+  const dollarsToAtomsRatio = makeRatio(10n, atomBrand, 1n, brand);
+  const { creatorFacet, instance } = await E(zoe).startInstance(
+    installation,
+    {
+      Dollars: dollarIssuer,
+      Atoms: atomIssuer
+    },
+    {
+      dollarsToAtomsRatio
+    }
+  );
   // Let's get the tokenIssuer from the contract so we can evaluate
   // what we get as our payout
   const publicFacet = E(zoe).getPublicFacet(instance);
@@ -99,7 +114,6 @@ test('zoe - mint payments', async t => {
     { Dollars: mint.mintPayment(dollars(1200n)) }
   );
   const addResult = await addCollateralSeat.getOfferResult();
-  console.log({ addResult });
 
   t.deepEqual(store.get('Dollars'), { value: 1500n, brand });
 });
