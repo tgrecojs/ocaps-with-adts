@@ -36,7 +36,7 @@ const runSetupValidationStore = () =>
     );
     return { ...env };
   });
-const createMintTask = async (promises = []) => {
+const handleCreateDebtMints = async (promises = []) => {
   return E.when(Promise.all(promises), ([LiAtoms, LiDollars]) => {
     console.log(`Mints saved`, LiAtoms, LiDollars);
     const { brand: LiAtomsBrand, issuer: LiAtomsIssuer } =
@@ -102,7 +102,7 @@ const start = async zcf => {
     issuersFromZcf: issuers,
     validationStore
   });
-  const runCreateDebtMints = await createMintTask(
+  const runCreateDebtMints = await handleCreateDebtMints(
     getDebtKeywords(initContractAdminState.validationStore)
   );
 
