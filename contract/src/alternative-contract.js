@@ -27,18 +27,36 @@ import {
 import { Either, Fn, Task } from '../data.types.js';
 
 const runSetupValidationStore = () =>
-  Fn.ask.map(env =>
+  Fn.ask.map(env => {
     Object.entries(env.issuersFromZcf).map(([keyword, props]) =>
       env.validationStore.init(keyword, {
         wantKeyword: `Li${keyword}`,
         issuer: props
       })
-    )
-  );
+    );
+    return { ...env };
+  });
 const createMintTask = async (promises = []) => {
-  return E.when(Promise.all(promises), ([LiAtomsMint, LiDollarsMin]) => {
-    console.log(`Mints saved`, LiAtomsMint, LiDollarsMin);
-    return Fn.ask.map(env => ({ ...env, mints: LiAtomsMint, LiDollarsMin }));
+  return E.when(Promise.all(promises), ([LiAtoms, LiDollars]) => {
+    console.log(`Mints saved`, LiAtoms, LiDollars);
+    const { brand: LiAtomsBrand, issuer: LiAtomsIssuer } =
+      LiAtoms.getIssuerRecord();
+    const { brand: LiDollarsBrand, issuer: LiDollarsIssuer } =
+      LiDollars.getIssuerRecord();
+
+    return Fn.ask.map(env => ({
+      ...env,
+      LiAtomsMint: {
+        brand: LiAtomsBrand,
+        issuer: LiAtomsIssuer,
+        mint: LiAtoms
+      },
+      LiDollarsMint: {
+        mint: LiDollars,
+        brand: LiDollarsBrand,
+        issuer: LiDollarsIssuer
+      }
+    }));
   }).catch(e => {
     console.error(`Failure with mint. Not added to Reserve`);
     throw e;
@@ -66,39 +84,39 @@ const start = async zcf => {
     [...store.values()].map(x => x.wantKeyword).map(x => zcf.makeZCFMint(x));
 
   const { issuers, dollarsToAtomsRatio } = zcf.getTerms();
+  const validationStore = makeStore('contract validation store');
 
   const { zcfSeat: adminSeat } = zcf.makeEmptySeatKit();
-  const zcfMint = await zcf.makeZCFMint('Tokens');
   const adminState = {
-    zcfMint,
     adminSeat,
     reallocate: zcf.reallocate,
     swap: (leftSeat, rightSeat) => swap(zcf, leftSeat, rightSeat),
     internalStore: makeStore('balances'),
-    validationStore: makeStore('contract validation store'),
-    dollarsToAtomsRatio
+    dollarsToAtomsRatio,
+    issuersFromZcf: issuers
   };
+  const mergeReader = inner => Fn(x => ({ ...x, ...inner }));
 
-  const initContractAdminState = runSetupValidationStore()
-    .chain(runGetIssuerRecord)
-    .run({
-      ...adminState,
-      issuersFromZcf: issuers
-    });
-  const newMints = await createMintTask(
+  const initContractAdminState = runSetupValidationStore().run({
+    ...adminState,
+    issuersFromZcf: issuers,
+    validationStore
+  });
+  const runCreateDebtMints = await createMintTask(
     getDebtKeywords(initContractAdminState.validationStore)
   );
 
-  const mergeReader = inner => Fn(x => ({ ...x, mints: inner }));
-  const contractAdminState = newMints
+  const contractAdminState = runCreateDebtMints
     .chain(mergeReader)
     .run(initContractAdminState);
 
   const runHandleDepositOffer = runGetWantAmount()
-    .map(trace('after getRun'))
     .chain(runMintWantAmount)
-    .chain(runIncrementAdmin)
+    .map(trace('after runMintWantAmount'))
     .chain(runIncrementUser)
+    .map(trace('after runIncrementUser'))
+    .chain(runIncrementAdmin)
+    .map(trace('after runIncrementAdmin'))
     .chain(runReallocate)
     .chain(runExitUserSeat)
     .chain(runRecordAdminDeposit);
@@ -125,7 +143,16 @@ const start = async zcf => {
     });
 
   const addCollateral = store => seat =>
-    runHandleDepositOffer
+    runGetWantAmount()
+      .chain(runMintWantAmount)
+      .map(trace('after runMintWantAmount'))
+      .chain(runIncrementUser)
+      .map(trace('after runIncrementUser'))
+      .chain(runIncrementAdmin)
+      .map(trace('after runIncrementAdmin'))
+      .chain(runReallocate)
+      .chain(runExitUserSeat)
+      .chain(runRecordAdminDeposit)
       .chain(runRecordUserDeposit)
       .run(merge(contractAdminState, { userSeat: seat, userStore: store }))
       .fold(handleError('error handling mint payment offer'), () =>
@@ -152,14 +179,15 @@ const start = async zcf => {
         openAccount(makeStore('user store')),
         'mint a payment'
       ),
-    getTokenIssuer: () => zcfMint.getIssuerRecord().issuer,
+    getLiDollarsIssuer: () => contractAdminState.LiDollarsMint.issuer,
     getStore: () => adminState.internalStore
   });
 
   const publicFacet = Far('publicFacet', {
     // Make the token issuer public. Note that only the mint can
     // make new digital assets. The issuer is ok to make public.
-    getTokenIssuer: () => zcfMint.getIssuerRecord().issuer
+    getLiAtomsIssuer: () => contractAdminState.LiAtomsMint.issuer,
+    getLiDollarsIssuer: () => contractAdminState.LiDollarsMint.issuer
   });
 
   // Return the creatorFacet to the creator, so they can make

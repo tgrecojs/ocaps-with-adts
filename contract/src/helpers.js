@@ -29,10 +29,11 @@ const parseKeyword = offerSide =>
 
 const unboxKeyword = x => head(parseKeyword(x));
 
+const getMint = keyword => obj => obj[`${keyword}Mint`];
 const runMintWantAmount = ({ keyword, value }) =>
   ask.map(env =>
-    env.zcfMint.mintGains(
-      { [keyword]: AmountMath.make(env.brand, value) },
+    getMint(keyword)(env).mint.mintGains(
+      { [keyword]: AmountMath.make(getMint(keyword)(env).brand, value) },
       env.adminSeat
     )
   );
@@ -54,11 +55,12 @@ const runReallocate = () =>
   ask.map(env => env.reallocate(env.userSeat, env.adminSeat));
 
 const runIncrementUser = () =>
-  ask.map(env =>
-    env.userSeat.incrementBy(
+  ask.map(env => {
+    console.log({ user: env.userSeat.getCurrentAllocation() });
+    return env.userSeat.incrementBy(
       env.adminSeat.decrementBy(harden(env.userSeat.getProposal().want))
-    )
-  );
+    );
+  });
 
 const runExitUserSeat = () => ask.map(env => env.userSeat.exit());
 

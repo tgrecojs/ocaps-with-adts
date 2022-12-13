@@ -47,11 +47,14 @@ test('zoe - mint payments', async t => {
       dollarsToAtomsRatio
     }
   );
-  // Let's get the tokenIssuer from the contract so we can evaluate
+  // Let's get the liDollarsIssuer from the contract so we can evaluate
   // what we get as our payout
   const publicFacet = E(zoe).getPublicFacet(instance);
-  const tokenIssuer = E(publicFacet).getTokenIssuer();
-  const tokenBrand = await E(tokenIssuer).getBrand();
+  const liDollarsIssuer = E(publicFacet).getLiDollarsIssuer();
+  const liDollarsBrand = await E(liDollarsIssuer).getBrand();
+  const LiAtomsIssuer = E(publicFacet).getLiAtomsIssuer();
+  const LiAtomsBrand = await E(LiAtomsIssuer).getBrand();
+
   // Alice makes an invitation for Bob that will give him 1000 tokens
   const invitation = E(creatorFacet).makeInvitation();
 
@@ -60,12 +63,17 @@ test('zoe - mint payments', async t => {
     invitation,
     {
       give: { Dollars: dollars(100n) },
-      want: { Token: AmountMath.make(tokenBrand, 100n) }
+      want: { LiDollars: AmountMath.make(liDollarsBrand, 100n) }
     },
     { Dollars: mint.mintPayment(dollars(100n)) }
   );
 
   t.deepEqual(await seat.hasExited(), true);
+
+  const paymentP = await seat.getPayout('LiDollars');
+  const tokenPayoutAmount = await E(liDollarsIssuer).getAmountOf(paymentP);
+  const liDollarsAmount = x => AmountMath.make(liDollarsBrand, x);
+  t.deepEqual(tokenPayoutAmount, liDollarsAmount(100n));
 
   const result = await seat.getOfferResult();
   t.truthy(
@@ -77,14 +85,8 @@ test('zoe - mint payments', async t => {
     'openAccount should return a reference to addCollateral'
   );
 
-  // Let's get the tokenIssuer from the contract so we can evaluate
+  // Let's get the liDollarsIssuer from the contract so we can evaluate
   // what we get as our payout
-
-  const tokens = x => AmountMath.make(tokenBrand, x);
-  const paymentP = await seat.getPayout('Token');
-  const tokenPayoutAmount = await E(tokenIssuer).getAmountOf(paymentP);
-
-  t.deepEqual(tokenPayoutAmount, tokens(100n));
 
   const store = await E(creatorFacet).getStore();
   // t.deepEqual(store.get('Dollars'), { brand, value: 100n });
@@ -93,27 +95,28 @@ test('zoe - mint payments', async t => {
   const seatTwo = await E(zoe).offer(
     E(creatorFacet).makeInvitation(),
     {
-      give: { Dollars: dollars(200n) },
-      want: { Token: AmountMath.make(tokenBrand, 200n) }
+      give: { Atoms: atoms(200n) },
+      want: { LiAtoms: AmountMath.make(LiAtomsBrand, 200n) }
     },
-    { Dollars: mint.mintPayment(dollars(200n)) }
+    { Atoms: atomMint.mintPayment(atoms(200n)) }
   );
-  const seatTwoPayout = await seatTwo.getPayout('Token');
-  const tokenPayoutAmounTwo = await E(tokenIssuer).getAmountOf(seatTwoPayout);
-  const resultTwo = await seatTwo.getOfferResult();
+  const seatTwoPayment = await seatTwo.getPayout('LiAtoms');
+  const seatTwoPaymentAmt = await E(LiAtomsIssuer).getAmountOf(seatTwoPayment);
+  const liAtomsAmount = x => AmountMath.make(LiAtomsBrand, x);
 
-  t.deepEqual(tokenPayoutAmounTwo, tokens(200n));
-  t.deepEqual(store.get('Dollars'), { value: 300n, brand });
+  t.deepEqual(seatTwoPaymentAmt, liAtomsAmount(200n));
+  t.deepEqual(store.get('Atoms'), { value: 200n, brand: atomBrand });
+  t.deepEqual(await seatTwo.hasExited(), true);
 
   const addCollateralSeat = await E(zoe).offer(
     E(result).addCollateralInvitation(),
     {
       give: { Dollars: dollars(1200n) },
-      want: { Token: AmountMath.make(tokenBrand, 1200n) }
+      want: { LiDollars: AmountMath.make(liDollarsBrand, 1200n) }
     },
     { Dollars: mint.mintPayment(dollars(1200n)) }
   );
   const addResult = await addCollateralSeat.getOfferResult();
 
-  t.deepEqual(store.get('Dollars'), { value: 1500n, brand });
+  t.deepEqual(store.get('Dollars'), { value: 1300n, brand });
 });
