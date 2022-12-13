@@ -9,6 +9,11 @@ import {
 import { makeStore } from '@agoric/store';
 import { E } from '@endo/eventual-send';
 import {
+  invertRatio,
+  multiplyBy
+} from '@agoric/zoe/src/contractSupport/ratio.js';
+import { AmountMath } from '@agoric/ertp';
+import {
   handleError,
   id,
   merge,
@@ -28,39 +33,50 @@ import { Either, Fn, Task } from '../data.types.js';
 
 const runSetupValidationStore = () =>
   Fn.ask.map(env => {
-    Object.entries(env.issuersFromZcf).map(([keyword, props]) =>
+    console.log({ ratioEnv: env.ratios });
+    Object.entries(env.issuersFromZcf).map(([keyword, issuer]) =>
       env.validationStore.init(keyword, {
         wantKeyword: `Li${keyword}`,
-        issuer: props
+        ratioState: env.ratios[keyword],
+        issuer
       })
     );
     return { ...env };
   });
-const createMintTask = async (promises = []) => {
-  return E.when(Promise.all(promises), ([LiAtoms, LiDollars]) => {
-    console.log(`Mints saved`, LiAtoms, LiDollars);
-    const { brand: LiAtomsBrand, issuer: LiAtomsIssuer } =
-      LiAtoms.getIssuerRecord();
-    const { brand: LiDollarsBrand, issuer: LiDollarsIssuer } =
-      LiDollars.getIssuerRecord();
 
-    return Fn.ask.map(env => ({
-      ...env,
-      LiAtomsMint: {
-        brand: LiAtomsBrand,
-        issuer: LiAtomsIssuer,
-        mint: LiAtoms
-      },
-      LiDollarsMint: {
-        mint: LiDollars,
-        brand: LiDollarsBrand,
-        issuer: LiDollarsIssuer
-      }
-    }));
-  }).catch(e => {
-    console.error(`Failure with mint. Not added to Reserve`);
-    throw e;
-  });
+const createMintTask = async (promises = []) => {
+  return Promise.all(promises)
+    .then(([LiAtoms, LiOsmos, LiUSD]) => {
+      console.log(`Mints saved`, LiAtoms, LiOsmos);
+      const { brand: LiAtomsBrand, issuer: LiAtomsIssuer } =
+        LiAtoms.getIssuerRecord();
+      const { brand: LiOsmosBrand, issuer: LiOsmosIssuer } =
+        LiOsmos.getIssuerRecord();
+      const { brand: LiUSDBrand, issuer: LiUSDIssuer } =
+        LiUSD.getIssuerRecord();
+      return Fn.ask.map(env => ({
+        ...env,
+        LiAtomsMint: {
+          brand: LiAtomsBrand,
+          issuer: LiAtomsIssuer,
+          mint: LiAtoms
+        },
+        LiOsmosMint: {
+          mint: LiOsmos,
+          brand: LiOsmosBrand,
+          issuer: LiOsmosIssuer
+        },
+        LiUSDMint: {
+          mint: LiUSD,
+          brand: LiUSDBrand,
+          issuer: LiUSDIssuer
+        }
+      }));
+    })
+    .catch(e => {
+      console.error(`Failure with mint. Not added to Reserve`);
+      throw e;
+    });
 };
 /**
  * This is a very simple contract that creates a new issuer and mints payments
@@ -79,11 +95,11 @@ const createMintTask = async (promises = []) => {
  */
 
 const start = async zcf => {
-  assertIssuerKeywords(zcf, ['Dollars', 'Atoms']);
+  assertIssuerKeywords(zcf, ['Atoms', 'Osmos', 'USD']);
   const getDebtKeywords = store =>
     [...store.values()].map(x => x.wantKeyword).map(x => zcf.makeZCFMint(x));
 
-  const { issuers, dollarsToAtomsRatio } = zcf.getTerms();
+  const { issuers, Ratios } = zcf.getTerms();
   const validationStore = makeStore('contract validation store');
 
   const { zcfSeat: adminSeat } = zcf.makeEmptySeatKit();
@@ -92,7 +108,7 @@ const start = async zcf => {
     reallocate: zcf.reallocate,
     swap: (leftSeat, rightSeat) => swap(zcf, leftSeat, rightSeat),
     internalStore: makeStore('balances'),
-    dollarsToAtomsRatio,
+    ratios: Ratios,
     issuersFromZcf: issuers
   };
   const mergeReader = inner => Fn(x => ({ ...x, ...inner }));
@@ -110,21 +126,44 @@ const start = async zcf => {
     .chain(mergeReader)
     .run(initContractAdminState);
 
+  const traceState = () =>
+    Fn.ask.map(env => {
+      console.log('inner state::', { ...env });
+      return Fn(x => x);
+    });
+
+  const handleCalculateMaxLtv = store => {
+    [...store.entries()].map(([key, { brand, value, maxLtv }]) => {
+      return store.set(key, {
+        brand,
+        value,
+        maxLtv,
+        maxAllowed: multiplyBy(AmountMath.make(brand, value), maxLtv)
+      });
+    });
+    return store;
+  };
+  const runCalculateMaxLtv = () => {
+    return Fn.ask.map(env => {
+      [...env.userStore.entries()].map(([key, { brand, value, maxLtv }]) => {
+        return env.userStore.set(key, {
+          brand,
+          value,
+          maxLtv,
+          maxAllowed: multiplyBy(AmountMath.make(brand, value), maxLtv)
+        });
+      });
+      return Fn(x => ({ ...x }));
+    });
+  };
   const runHandleDepositOffer = runGetWantAmount()
     .chain(runMintWantAmount)
-    .map(trace('after runMintWantAmount'))
     .chain(runIncrementUser)
-    .map(trace('after runIncrementUser'))
     .chain(runIncrementAdmin)
-    .map(trace('after runIncrementAdmin'))
     .chain(runReallocate)
     .chain(runExitUserSeat)
     .chain(runRecordAdminDeposit);
 
-  const borrow = store => seat => {
-    // todo
-    return 'borrow success!';
-  };
   const createUserAccountResult = store =>
     Far('accountHolderFacet', {
       getStore: () => store,
@@ -142,18 +181,53 @@ const start = async zcf => {
         )
     });
 
+  const runGetUsersLtv = () => Fn.ask.map(env => [...env.userStore.values()]);
+
+  const hasEnough = ({ totalForUser }) =>
+    runGetWantAmount().chain(({ value }) =>
+      Fn.ask.map(env =>
+        totalForUser > value
+          ? Either.Right(env)
+          : Either.Left(
+              Error(
+                'Error when checking LTV values. User does not have enough collateral to borrow'
+              )
+            )
+      )
+    );
+
+  const addMaxAllowed = (balances = []) =>
+    Fn.ask.map(env => ({
+      ...env,
+      totalForUser: balances.reduceRight(
+        (acc, val) => acc + val.maxAllowed.value,
+        0n
+      )
+    })); // ?
+
+  const calculateRatio = runGetUsersLtv().chain(addMaxAllowed).chain(hasEnough);
+
+  console.log(validationStore.get('Osmos'));
+  const borrow = store => seat =>
+    calculateRatio
+      .map(trace('after calc'))
+      .run(merge(contractAdminState, { userSeat: seat, userStore: store }))
+      .fold(handleError('Error handling borrow.'), () =>
+        createUserAccountResult(store)
+      );
+
+  const runGetRatio = () => Fn.ask.map(env => {});
   const addCollateral = store => seat =>
     runGetWantAmount()
       .chain(runMintWantAmount)
-      .map(trace('after runMintWantAmount'))
       .chain(runIncrementUser)
-      .map(trace('after runIncrementUser'))
       .chain(runIncrementAdmin)
-      .map(trace('after runIncrementAdmin'))
       .chain(runReallocate)
       .chain(runExitUserSeat)
       .chain(runRecordAdminDeposit)
       .chain(runRecordUserDeposit)
+      .chain(runCalculateMaxLtv)
+      .map(Either.of)
       .run(merge(contractAdminState, { userSeat: seat, userStore: store }))
       .fold(handleError('error handling mint payment offer'), () =>
         createUserAccountResult(store)
@@ -162,6 +236,8 @@ const start = async zcf => {
   const openAccount = store => seat =>
     runHandleDepositOffer
       .chain(runRecordUserDeposit)
+      .chain(runCalculateMaxLtv)
+      .map(Either.of)
       .run(
         merge(contractAdminState, {
           userSeat: seat,
@@ -179,15 +255,18 @@ const start = async zcf => {
         openAccount(makeStore('user store')),
         'mint a payment'
       ),
-    getLiDollarsIssuer: () => contractAdminState.LiDollarsMint.issuer,
+    getLiAtomsIssuer: () => contractAdminState.LiAtomsMint.issuer,
+    getLiOsmosIssuer: () => contractAdminState.LiOsmosMint.issuer,
+    getLiUSDIssuer: () => contractAdminState.LiUSDMint.issuer,
     getStore: () => adminState.internalStore
   });
 
   const publicFacet = Far('publicFacet', {
     // Make the token issuer public. Note that only the mint can
     // make new digital assets. The issuer is ok to make public.
+    getLiUSDIssuer: () => contractAdminState.LiUSDMint.issuer,
     getLiAtomsIssuer: () => contractAdminState.LiAtomsMint.issuer,
-    getLiDollarsIssuer: () => contractAdminState.LiDollarsMint.issuer
+    getLiOsmosIssuer: () => contractAdminState.LiOsmosMint.issuer
   });
 
   // Return the creatorFacet to the creator, so they can make

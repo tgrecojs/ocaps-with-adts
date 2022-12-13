@@ -5,7 +5,7 @@ import { describe } from './prepare-riteway.js';
 import { AmountMath, makeIssuerKit } from '@agoric/ertp';
 import { Fn, Fn as Reader } from '../data.types.js';
 
-const { brand, issuer, mint } = makeIssuerKit('dollars');
+const { brand, issuer, mint } = makeIssuerKit('Osmos');
 const dollars = (x) => AmountMath.make(brand, x);
 
 const runCreateAmount = (x) =>

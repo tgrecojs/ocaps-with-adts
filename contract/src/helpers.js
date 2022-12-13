@@ -11,15 +11,17 @@ const head = (arr = []) => {
 
 const initOrSet =
   store =>
-  ({ keyword, brand, value }) =>
+  ({ keyword, brand, value, ...rest }) =>
     !store.has(keyword)
       ? store.init(keyword, {
           value,
-          brand
+          brand,
+          ...rest
         })
       : store.set(keyword, {
           brand,
-          value: store.get(keyword).value + value
+          value: store.get(keyword).value + value,
+          ...rest
         });
 
 const parseKeyword = offerSide =>
@@ -55,12 +57,11 @@ const runReallocate = () =>
   ask.map(env => env.reallocate(env.userSeat, env.adminSeat));
 
 const runIncrementUser = () =>
-  ask.map(env => {
-    console.log({ user: env.userSeat.getCurrentAllocation() });
-    return env.userSeat.incrementBy(
+  ask.map(env =>
+    env.userSeat.incrementBy(
       env.adminSeat.decrementBy(harden(env.userSeat.getProposal().want))
-    );
-  });
+    )
+  );
 
 const runExitUserSeat = () => ask.map(env => env.userSeat.exit());
 
@@ -96,7 +97,10 @@ const safeSwap = () =>
   ask.map(state =>
     Either.tryCatch(() => state.swap(state.userSeat, state.adminSeat))
   );
-
+const getRatio =
+  ({ ratios }) =>
+  keyword =>
+    ratios[keyword];
 const runRecordAdminDeposit = () =>
   runGetGiveAmount().chain(giveObject =>
     Fn.ask.map(env => {
@@ -104,10 +108,21 @@ const runRecordAdminDeposit = () =>
     })
   );
 
+const traceState = value =>
+  Fn.ask.map(env => {
+    console.log('inner state::', { ...env, value });
+    return value;
+  });
+
 const runRecordUserDeposit = () =>
-  runGetWantAmount().chain(giveObject =>
+  runGetGiveAmount().chain(giveObject =>
     Fn.ask.map(env => {
-      return Either.tryCatch(() => initOrSet(env.userStore)(giveObject));
+      return Either.tryCatch(() =>
+        initOrSet(env.userStore)({
+          ...giveObject,
+          maxLtv: getRatio(env)(giveObject.keyword)
+        })
+      );
     })
   );
 
