@@ -6,7 +6,7 @@ import {
   assertIssuerKeywords,
   swap
 } from '@agoric/zoe/src/contractSupport/zoeHelpers.js';
-import { makeStore } from '@agoric/store';
+import { M, makeStore } from '@agoric/store';
 import { E } from '@endo/eventual-send';
 import {
   invertRatio,
@@ -32,30 +32,27 @@ import {
 import { Either, Fn, Task } from '../data.types.js';
 
 const runSetupValidationStore = () =>
-  Fn.ask.map(env => {
-    console.log({ ratioEnv: env.ratios });
+  Fn.ask.map(env =>
     Object.entries(env.issuersFromZcf).map(([keyword, issuer]) =>
       env.validationStore.init(keyword, {
         wantKeyword: `Li${keyword}`,
         ratioState: env.ratios[keyword],
         issuer
       })
-    );
-    return { ...env };
-  });
+    )
+  );
 
 const createMintTask = async (promises = []) => {
-  return Promise.all(promises)
-    .then(([LiAtoms, LiOsmos, LiUSD]) => {
-      console.log(`Mints saved`, LiAtoms, LiOsmos);
+  return E.when(
+    Promise.all(promises).then(([LiAtoms, LiOsmos, LiUSD]) => {
+      console.log(`Mints saved`, { LiAtoms, LiOsmos, LiUSD });
       const { brand: LiAtomsBrand, issuer: LiAtomsIssuer } =
         LiAtoms.getIssuerRecord();
       const { brand: LiOsmosBrand, issuer: LiOsmosIssuer } =
         LiOsmos.getIssuerRecord();
       const { brand: LiUSDBrand, issuer: LiUSDIssuer } =
         LiUSD.getIssuerRecord();
-      return Fn.ask.map(env => ({
-        ...env,
+      return {
         LiAtomsMint: {
           brand: LiAtomsBrand,
           issuer: LiAtomsIssuer,
@@ -71,13 +68,19 @@ const createMintTask = async (promises = []) => {
           brand: LiUSDBrand,
           issuer: LiUSDIssuer
         }
-      }));
+      };
     })
-    .catch(e => {
-      console.error(`Failure with mint. Not added to Reserve`);
-      throw e;
-    });
+  ).catch(e => {
+    console.error(`Failure with mint. Not added to Reserve`);
+    throw e;
+  });
 };
+
+const createGiveRecord = brands =>
+  Object.entries(brands).map(([key, value]) => ({
+    [key]: value.getAmountShape()
+  }));
+
 /**
  * This is a very simple contract that creates a new issuer and mints payments
  * from it, in order to give an example of how that can be done.  This contract
@@ -93,44 +96,32 @@ const createMintTask = async (promises = []) => {
  *
  * @type {ContractStartFn}
  */
+const mergeReader = inner => Fn(x => ({ ...x, ...inner }));
 
 const start = async zcf => {
   assertIssuerKeywords(zcf, ['Atoms', 'Osmos', 'USD']);
-  const getDebtKeywords = store =>
-    [...store.values()].map(x => x.wantKeyword).map(x => zcf.makeZCFMint(x));
+  const getDebtKeywords = (array = []) =>
+    Object.keys(array).map(x => zcf.makeZCFMint(`Li${x}`));
 
-  const { issuers, Ratios } = zcf.getTerms();
-  const validationStore = makeStore('contract validation store');
+  const { issuers, Ratios, brands, ...rest } = zcf.getTerms();
 
   const { zcfSeat: adminSeat } = zcf.makeEmptySeatKit();
+
+  const runCreateDebtMints = await createMintTask(getDebtKeywords(brands));
+
   const adminState = {
     adminSeat,
     reallocate: zcf.reallocate,
-    swap: (leftSeat, rightSeat) => swap(zcf, leftSeat, rightSeat),
     internalStore: makeStore('balances'),
     ratios: Ratios,
-    issuersFromZcf: issuers
-  };
-  const mergeReader = inner => Fn(x => ({ ...x, ...inner }));
-
-  const initContractAdminState = runSetupValidationStore().run({
-    ...adminState,
     issuersFromZcf: issuers,
-    validationStore
-  });
-  const runCreateDebtMints = await createMintTask(
-    getDebtKeywords(initContractAdminState.validationStore)
-  );
+    validationStore: makeStore('contract validation store'),
+    ...runCreateDebtMints
+  };
 
-  const contractAdminState = runCreateDebtMints
+  const contractAdminState = runSetupValidationStore()
     .chain(mergeReader)
-    .run(initContractAdminState);
-
-  const traceState = () =>
-    Fn.ask.map(env => {
-      console.log('inner state::', { ...env });
-      return Fn(x => x);
-    });
+    .run(adminState);
 
   const handleCalculateMaxLtv = store => {
     [...store.entries()].map(([key, { brand, value, maxLtv }]) => {
@@ -143,8 +134,8 @@ const start = async zcf => {
     });
     return store;
   };
-  const runCalculateMaxLtv = () => {
-    return Fn.ask.map(env => {
+  const runCalculateMaxLtv = () =>
+    Fn.ask.map(env =>
       [...env.userStore.entries()].map(([key, { brand, value, maxLtv }]) => {
         return env.userStore.set(key, {
           brand,
@@ -152,19 +143,34 @@ const start = async zcf => {
           maxLtv,
           maxAllowed: multiplyBy(AmountMath.make(brand, value), maxLtv)
         });
-      });
-      return Fn(x => ({ ...x }));
-    });
-  };
+      })
+    );
+
   const runHandleDepositOffer = runGetWantAmount()
     .chain(runMintWantAmount)
     .chain(runIncrementUser)
     .chain(runIncrementAdmin)
     .chain(runReallocate)
     .chain(runExitUserSeat)
-    .chain(runRecordAdminDeposit);
+    .chain(runRecordAdminDeposit)
+    .chain(runRecordUserDeposit)
+    .chain(runCalculateMaxLtv)
+    .map(Either.of);
 
-  const createUserAccountResult = store =>
+  /**
+   *
+   * References provided to an exisiting account holder for continued interation with the contract.
+   *
+   * @typedef {object} AccountOfferResult
+   * @property {(getStore: Keyword) => Promise<MapStore<Keyword, Balance>>} getStore
+   * @property {(borrowInvitation: Invitation) => Promise<Invitation>} borrowInvitation
+   */
+
+  /**
+   * @param {(MapStore<Keyword, Balance>) => AccountOfferResult}
+   * @param store
+   */
+  const accountOfferResult = store =>
     Far('accountHolderFacet', {
       getStore: () => store,
       addCollateralInvitation: () =>
@@ -183,7 +189,16 @@ const start = async zcf => {
 
   const runGetUsersLtv = () => Fn.ask.map(env => [...env.userStore.values()]);
 
-  const hasEnough = ({ totalForUser }) =>
+  /**
+   * @typedef {object} EitherFn
+   * @property map
+   */
+
+  /**
+   * @param {bigint} totalForUser total amount in USD a user can borrow.
+   * @returns {EitherFn}
+   */
+  const runCheckCurrentLtv = totalForUser =>
     runGetWantAmount().chain(({ value }) =>
       Fn.ask.map(env =>
         totalForUser > value
@@ -196,48 +211,53 @@ const start = async zcf => {
       )
     );
 
-  const addMaxAllowed = (balances = []) =>
-    Fn.ask.map(env => ({
-      ...env,
-      totalForUser: balances.reduceRight(
-        (acc, val) => acc + val.maxAllowed.value,
-        0n
-      )
-    })); // ?
+  const calculateMaxBorrowValue = (balances = []) =>
+    balances.reduceRight((acc, val) => acc + val.maxAllowed.value, 0n);
 
-  const calculateRatio = runGetUsersLtv().chain(addMaxAllowed).chain(hasEnough);
+  const runValidateAccountBalances = runGetUsersLtv()
+    .map(calculateMaxBorrowValue)
+    .chain(runCheckCurrentLtv);
 
-  console.log(validationStore.get('Osmos'));
+  /**
+   * @typedef {object} MaxAllowed maximum about that a user can borrow, denominated in a brand (USD)
+   * @property {Brand} brand
+   * @property {bigint} value
+   * /
+   
+  /**
+   * @typedef {object} Balance
+   * @property {Brand} brand
+   * @property {MaxAllowed} maxAllowed total amount in USD a user can borrow.
+   * @property {Ratio} maxLtv ratio of collateral price to USD
+   * @property {bigint} value total tokens of that brand supplied
+   */
+
+  /**
+   * Private key-value pair provided to an account upon successful creation.
+   *
+   * @typedef {(MapStore<'Keyword', Balance>)} AccountStore
+   */
+
+  /**
+   * @param {(AccountStore)} store
+   * @returns {(seat: OfferHandler) => AccountOfferResult}
+   */
   const borrow = store => seat =>
-    calculateRatio
-      .map(trace('after calc'))
+    runValidateAccountBalances
       .run(merge(contractAdminState, { userSeat: seat, userStore: store }))
       .fold(handleError('Error handling borrow.'), () =>
-        createUserAccountResult(store)
+        accountOfferResult(store)
       );
 
-  const runGetRatio = () => Fn.ask.map(env => {});
   const addCollateral = store => seat =>
-    runGetWantAmount()
-      .chain(runMintWantAmount)
-      .chain(runIncrementUser)
-      .chain(runIncrementAdmin)
-      .chain(runReallocate)
-      .chain(runExitUserSeat)
-      .chain(runRecordAdminDeposit)
-      .chain(runRecordUserDeposit)
-      .chain(runCalculateMaxLtv)
-      .map(Either.of)
+    runHandleDepositOffer
       .run(merge(contractAdminState, { userSeat: seat, userStore: store }))
       .fold(handleError('error handling mint payment offer'), () =>
-        createUserAccountResult(store)
+        accountOfferResult(store)
       );
 
   const openAccount = store => seat =>
     runHandleDepositOffer
-      .chain(runRecordUserDeposit)
-      .chain(runCalculateMaxLtv)
-      .map(Either.of)
       .run(
         merge(contractAdminState, {
           userSeat: seat,
@@ -245,7 +265,7 @@ const start = async zcf => {
         })
       )
       .fold(handleError('error handling mint payment offer'), () =>
-        createUserAccountResult(store)
+        accountOfferResult(store)
       );
 
   const creatorFacet = Far('creatorFacet', {
@@ -253,7 +273,9 @@ const start = async zcf => {
     makeInvitation: () =>
       zcf.makeInvitation(
         openAccount(makeStore('user store')),
-        'mint a payment'
+        'mint a payment',
+        undefined,
+        M.splitRecord({ give: M.or(...createGiveRecord(brands)) })
       ),
     getLiAtomsIssuer: () => contractAdminState.LiAtomsMint.issuer,
     getLiOsmosIssuer: () => contractAdminState.LiOsmosMint.issuer,
