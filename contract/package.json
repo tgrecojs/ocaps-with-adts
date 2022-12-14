@@ -2,7 +2,7 @@
   "name": "dapp-bank-adts-contract",
   "version": "0.1.0",
   "private": true,
-  "description": "Contract for the Agoric Dapp",
+  "description": "Contracts for LARI Finance.",
   "type": "module",
   "scripts": {
     "build": "exit 0",
@@ -49,14 +49,14 @@
   "keywords": [],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Agoric/agoric"
+    "url": "git+https://github.com/lari-labs/lari-finance"
   },
   "author": "Agoric",
   "license": "Apache-2.0",
   "bugs": {
-    "url": "https://github.com/Agoric/agoric/issues"
+    "url": "https://github.com/lari-labs/lari-finance/issues"
   },
-  "homepage": "https://github.com/Agoric/agoric#readme",
+  "homepage": "https://github.com/lari-labs/lari-finance#readme",
   "eslintConfig": {
     "extends": [
       "@agoric"
