@@ -2,23 +2,15 @@
 /* global harden */
 import '@agoric/zoe/exported.js';
 import { Far } from '@endo/marshal';
-import {
-  assertIssuerKeywords,
-  swap
-} from '@agoric/zoe/src/contractSupport/zoeHelpers.js';
+import { assertIssuerKeywords } from '@agoric/zoe/src/contractSupport/zoeHelpers.js';
 import { M, makeStore } from '@agoric/store';
 import { E } from '@endo/eventual-send';
-import {
-  invertRatio,
-  multiplyBy
-} from '@agoric/zoe/src/contractSupport/ratio.js';
+import { multiplyBy } from '@agoric/zoe/src/contractSupport/ratio.js';
 import { AmountMath } from '@agoric/ertp';
 import {
   handleError,
-  id,
   merge,
   runExitUserSeat,
-  runGetIssuerRecord,
   runGetWantAmount,
   runIncrementAdmin,
   runIncrementUser,
@@ -103,7 +95,7 @@ const start = async zcf => {
   const getDebtKeywords = (array = []) =>
     Object.keys(array).map(x => zcf.makeZCFMint(`Li${x}`));
 
-  const { issuers, Ratios, brands, ...rest } = zcf.getTerms();
+  const { issuers, Ratios, brands } = zcf.getTerms();
 
   const { zcfSeat: adminSeat } = zcf.makeEmptySeatKit();
 
@@ -123,17 +115,6 @@ const start = async zcf => {
     .chain(mergeReader)
     .run(adminState);
 
-  const handleCalculateMaxLtv = store => {
-    [...store.entries()].map(([key, { brand, value, maxLtv }]) => {
-      return store.set(key, {
-        brand,
-        value,
-        maxLtv,
-        maxAllowed: multiplyBy(AmountMath.make(brand, value), maxLtv)
-      });
-    });
-    return store;
-  };
   const runCalculateMaxLtv = () =>
     Fn.ask.map(env =>
       [...env.userStore.entries()].map(([key, { brand, value, maxLtv }]) => {
@@ -189,15 +170,6 @@ const start = async zcf => {
 
   const runGetUsersLtv = () => Fn.ask.map(env => [...env.userStore.values()]);
 
-  /**
-   * @typedef {object} EitherFn
-   * @property map
-   */
-
-  /**
-   * @param {bigint} totalForUser total amount in USD a user can borrow.
-   * @returns {EitherFn}
-   */
   const runCheckCurrentLtv = totalForUser =>
     runGetWantAmount().chain(({ value }) =>
       Fn.ask.map(env =>
