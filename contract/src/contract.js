@@ -8,6 +8,7 @@ import { E } from '@endo/eventual-send';
 import { multiplyBy } from '@agoric/zoe/src/contractSupport/ratio.js';
 import { AmountMath } from '@agoric/ertp';
 import {
+  createGiveRecord,
   handleError,
   merge,
   runExitUserSeat,
@@ -21,18 +22,7 @@ import {
   trace,
   TraceReader
 } from './helpers.js';
-import { Either, Fn, Task } from '../data.types.js';
-
-const runSetupValidationStore = () =>
-  Fn.ask.map(env =>
-    Object.entries(env.issuersFromZcf).map(([keyword, issuer]) =>
-      env.validationStore.init(keyword, {
-        wantKeyword: `Li${keyword}`,
-        ratioState: env.ratios[keyword],
-        issuer
-      })
-    )
-  );
+import { Either, Fn } from '../data.types.js';
 
 const createMintTask = async (promises = []) => {
   return E.when(
@@ -68,28 +58,9 @@ const createMintTask = async (promises = []) => {
   });
 };
 
-const createGiveRecord = brands =>
-  Object.entries(brands).map(([key, value]) => ({
-    [key]: value.getAmountShape()
-  }));
-
 /**
- * This is a very simple contract that creates a new issuer and mints payments
- * from it, in order to give an example of how that can be done.  This contract
- * sends new tokens to anyone who has an invitation.
- *
- * The expectation is that most contracts that want to do something similar
- * would use the ability to mint new payments internally rather than sharing
- * that ability widely as this one does.
- *
- * To pay others in tokens, the creator of the instance can make
- * invitations for them, which when used to make an offer, will payout
- * the specified amount of tokens.
- *
  * @type {ContractStartFn}
  */
-const mergeReader = inner => Fn(x => ({ ...x, ...inner }));
-
 const start = async zcf => {
   assertIssuerKeywords(zcf, ['Atoms', 'Osmos', 'USD']);
   const getDebtKeywords = (array = []) =>
@@ -138,19 +109,6 @@ const start = async zcf => {
     .chain(runCalculateMaxLtv)
     .map(Either.of);
 
-  /**
-   *
-   * References provided to an exisiting account holder for continued interation with the contract.
-   *
-   * @typedef {object} AccountOfferResult
-   * @property {(getStore: Keyword) => Promise<MapStore<Keyword, Balance>>} getStore
-   * @property {(borrowInvitation: Invitation) => Promise<Invitation>} borrowInvitation
-   */
-
-  /**
-   * @param {(MapStore<Keyword, Balance>) => AccountOfferResult}
-   * @param store
-   */
   const accountOfferResult = store =>
     Far('accountHolderFacet', {
       getStore: () => store,
@@ -190,30 +148,6 @@ const start = async zcf => {
     .map(calculateMaxBorrowValue)
     .chain(runCheckCurrentLtv);
 
-  /**
-   * @typedef {object} MaxAllowed maximum about that a user can borrow, denominated in a brand (USD)
-   * @property {Brand} brand
-   * @property {bigint} value
-   * /
-   
-  /**
-   * @typedef {object} Balance
-   * @property {Brand} brand
-   * @property {MaxAllowed} maxAllowed total amount in USD a user can borrow.
-   * @property {Ratio} maxLtv ratio of collateral price to USD
-   * @property {bigint} value total tokens of that brand supplied
-   */
-
-  /**
-   * Private key-value pair provided to an account upon successful creation.
-   *
-   * @typedef {(MapStore<'Keyword', Balance>)} AccountStore
-   */
-
-  /**
-   * @param {(AccountStore)} store
-   * @returns {(seat: OfferHandler) => AccountOfferResult}
-   */
   const borrow = store => seat =>
     runValidateAccountBalances
       .run(merge(contractAdminState, { userSeat: seat, userStore: store }))

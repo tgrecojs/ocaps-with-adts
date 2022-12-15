@@ -108,12 +108,6 @@ const runRecordAdminDeposit = () =>
     })
   );
 
-const traceState = value =>
-  Fn.ask.map(env => {
-    console.log('inner state::', { ...env, value });
-    return value;
-  });
-
 const runRecordUserDeposit = () =>
   runGetGiveAmount().chain(giveObject =>
     Fn.ask.map(env => {
@@ -126,8 +120,28 @@ const runRecordUserDeposit = () =>
     })
   );
 
+const runSetupValidationStore = () =>
+  Fn.ask.map(env =>
+    Object.entries(env.issuersFromZcf).map(([keyword, issuer]) =>
+      env.validationStore.init(keyword, {
+        wantKeyword: `Li${keyword}`,
+        ratioState: env.ratios[keyword],
+        issuer
+      })
+    )
+  );
+
+const createGiveRecord = brands =>
+  Object.entries(brands).map(([key, value]) => ({
+    [key]: value.getAmountShape()
+  }));
+
+const mergeReader = inner => Fn(x => ({ ...x, ...inner }));
+
 export {
   handleOfferSuccessMsg,
+  createGiveRecord,
+  mergeReader,
   handleError,
   id,
   merge,
@@ -147,6 +161,7 @@ export {
   runRecordUserDeposit,
   safeSwap,
   trace,
+  runSetupValidationStore,
   traceADT,
   TraceReader
 };
